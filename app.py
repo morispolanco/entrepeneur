@@ -1,8 +1,11 @@
 import streamlit as st
 import requests
 import json
+import re
 from docx import Document
 from io import BytesIO
+import plotly.graph_objs as go
+import pandas as pd
 
 # Set page configuration
 st.set_page_config(page_title="Entrepreneurship Feasibility Analysis", page_icon="🌎", layout="wide")
@@ -12,14 +15,14 @@ def create_info_column():
     st.markdown("""
     ## About this application
 
-    This application provides a feasibility analysis for starting different types of industries, businesses, or services in any city worldwide. It allows users to evaluate the viability of entrepreneurship in specific sectors based on the selected location.
+    This application provides a feasibility analysis for starting different types of industries, businesses, or services in any city worldwide. It allows users to evaluate the viability of entrepreneurship in specific sectors based on the selected location. The analysis includes interactive charts where applicable.
 
     ### How to use the application:
 
     1. Enter a city and country.
     2. Select an industry, business, or service sector, or describe your own entrepreneurship idea.
     3. Click on "Get feasibility analysis" to generate the analysis.
-    4. Read the detailed information provided.
+    4. Read the detailed information provided and interact with the charts.
     5. If desired, download a DOCX document with all the information.
 
     ### Author and update:
@@ -56,7 +59,7 @@ with col2:
     def search_information(query):
         url = "https://google.serper.dev/search"
         payload = json.dumps({
-            "q": f"{query} city feasibility analysis"
+            "q": f"{query} city feasibility analysis statistics"
         })
         headers = {
             'X-API-KEY': SERPER_API_KEY,
@@ -69,7 +72,7 @@ with col2:
         url = "https://api.together.xyz/inference"
         payload = json.dumps({
             "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-            "prompt": f"Context: {context}\n\nCity: {city}\nCountry: {country}\nSector: {sector}\n\nProvide a detailed and extensive feasibility analysis on starting a business in the '{sector}' sector in {city}, {country}. The information should be accurate, complete, and based on real data. Include statistics, relevant numerical data, market analysis, entry barriers, and any additional information that may be of interest. Make sure to cover multiple aspects of business feasibility.\n\nFeasibility analysis:",
+            "prompt": f"Context: {context}\n\nCity: {city}\nCountry: {country}\nSector: {sector}\n\nProvide a detailed and extensive feasibility analysis on starting a business in the '{sector}' sector in {city}, {country}. The information should be accurate, complete, and based on real data. Include statistics, relevant numerical data, market analysis, entry barriers, and any additional information that may be of interest. Make sure to cover multiple aspects of business feasibility.\n\nWhere possible, include numerical data that can be used to create charts. For example, you could provide market size projections over the next 5 years, or a breakdown of market share by competitors.\n\nFeasibility analysis:",
             "max_tokens": 4096,
             "temperature": 0.2,
             "top_p": 0.9,
@@ -83,6 +86,38 @@ with col2:
         }
         response = requests.post(url, headers=headers, data=payload)
         return response.json()['output']['choices'][0]['text'].strip()
+
+    def extract_numerical_data(text):
+        # Extract data for line chart (e.g., market size projections)
+        line_data = re.findall(r'(\d{4}).*?(\d+(?:\.\d+)?)', text)
+        
+        # Extract data for pie chart (e.g., market share)
+        pie_data = re.findall(r'(\w+(?:\s+\w+)?)\s*:\s*(\d+(?:\.\d+)?)\s*%', text)
+        
+        return line_data, pie_data
+
+    def create_charts(line_data, pie_data):
+        charts = []
+        
+        if line_data:
+            df = pd.DataFrame(line_data, columns=['Year', 'Value'])
+            df['Year'] = pd.to_numeric(df['Year'])
+            df['Value'] = pd.to_numeric(df['Value'])
+            df = df.sort_values('Year')
+            
+            fig = go.Figure(data=go.Scatter(x=df['Year'], y=df['Value'], mode='lines+markers'))
+            fig.update_layout(title='Market Size Projection', xaxis_title='Year', yaxis_title='Market Size')
+            charts.append(fig)
+        
+        if pie_data:
+            labels = [item[0] for item in pie_data]
+            values = [float(item[1]) for item in pie_data]
+            
+            fig = go.Figure(data=[go.Pie(labels=labels, values=values)])
+            fig.update_layout(title='Market Share')
+            charts.append(fig)
+        
+        return charts
 
     def create_docx(city, country, information, sources):
         doc = Document()
@@ -138,6 +173,15 @@ with col2:
                 st.subheader(f"Feasibility analysis for entrepreneurship in the sector: {selected_sector}")
                 st.markdown(f"**Location: {city}, {country}**")
                 st.write(data)
+
+                # Extract numerical data and create charts
+                line_data, pie_data = extract_numerical_data(data)
+                charts = create_charts(line_data, pie_data)
+
+                # Display charts
+                for chart in charts:
+                    st.plotly_chart(chart)
+
                 st.write("---")
 
                 # Button to download the document
